@@ -34,7 +34,7 @@ resource "azurerm_resource_group" "rg" {
 # Static Web App
 # -----------------------------
 
-resource "azurerm_static_site" "swa" {
+resource "azurerm_static_web_app" "swa" {
   name                = var.static_web_app_name
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
@@ -57,7 +57,7 @@ resource "azuread_application" "swa_app" {
   dynamic "app_role" {
     for_each = var.clients
     content {
-      allowed_member_types = ["User", "Group"]
+      allowed_member_types = ["User"]
       description          = "Access to ${app_role.key}"
       display_name         = app_role.key
       enabled              = true
@@ -68,7 +68,7 @@ resource "azuread_application" "swa_app" {
 }
 
 resource "azuread_service_principal" "swa_sp" {
-  application_id = azuread_application.swa_app.application_id
+  client_id = azuread_application.swa_app.client_id
 }
 
 # -----------------------------
@@ -76,9 +76,9 @@ resource "azuread_service_principal" "swa_sp" {
 # -----------------------------
 
 output "static_web_app_hostname" {
-  value = azurerm_static_site.swa.default_host_name
+  value = azurerm_static_web_app.swa.default_host_name
 }
 
 output "app_registration_client_id" {
-  value = azuread_application.swa_app.application_id
+  value = azuread_application.swa_app.client_id
 }
