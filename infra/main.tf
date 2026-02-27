@@ -1,0 +1,84 @@
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.100"
+    }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.50"
+    }
+  }
+
+  backend "azurerm" {}
+}
+
+provider "azurerm" {
+  features {}
+}
+
+provider "azuread" {}
+
+# -----------------------------
+# Resource Group
+# -----------------------------
+
+resource "azurerm_resource_group" "rg" {
+  name     = var.resource_group_name
+  location = var.location
+}
+
+# -----------------------------
+# Static Web App
+# -----------------------------
+
+resource "azurerm_static_site" "swa" {
+  name                = var.static_web_app_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+
+  sku_tier = "Standard"
+  sku_size = "Standard"
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# -----------------------------
+# Azure AD App Registration
+# -----------------------------
+
+resource "azuread_application" "swa_app" {
+  display_name = "${var.static_web_app_name}-auth"
+
+  dynamic "app_role" {
+    for_each = var.clients
+    content {
+      allowed_member_types = ["User", "Group"]
+      description          = "Access to ${app_role.key}"
+      display_name         = app_role.key
+      enabled              = true
+      id                   = uuidv5("dns", app_role.key)
+      value                = app_role.key
+    }
+  }
+}
+
+resource "azuread_service_principal" "swa_sp" {
+  application_id = azuread_application.swa_app.application_id
+}
+
+# -----------------------------
+# Outputs
+# -----------------------------
+
+output "static_web_app_hostname" {
+  value = azurerm_static_site.swa.default_host_name
+}
+
+output "app_registration_client_id" {
+  value = azuread_application.swa_app.application_id
+}

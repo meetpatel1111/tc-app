@@ -1,0 +1,114 @@
+name: Infrastructure Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy (dev, test)"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, test]
+
+      action:
+        description: "Terraform action (plan, apply, destroy, refresh)"
+        required: false
+        default: "apply"
+        type: choice
+        options: [plan, apply, destroy, refresh]
+
+env:
+  TF_DIR: infra
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  BACKEND_RG: tfstate-uks-shared-rg
+  BACKEND_SA: sttfstateshared
+  BACKEND_CONTAINER: tfstate
+
+  ARM_CLIENT_ID:       ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+  ARM_CLIENT_SECRET:   ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+  ARM_TENANT_ID:       ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+  ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+
+jobs:
+  terraform-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          auth-type: SERVICE_PRINCIPAL
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Set Runtime Variables
+        run: |
+          echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          echo "ACTION=${{ github.event.inputs.action || 'apply' }}" >> $GITHUB_ENV
+          echo "STATE_KEY=tc/${{ github.event.inputs.environment }}.tfstate" >> $GITHUB_ENV
+          echo "TFVARS_FILE=${{ github.event.inputs.environment }}.tfvars" >> $GITHUB_ENV
+
+      # Optional backend bootstrap script
+      - name: Bootstrap Terraform Backend
+        run: |
+          chmod +x ./prebootstrap.sh
+          ./prebootstrap.sh \
+            "${BACKEND_RG}" \
+            "${BACKEND_SA}" \
+            "${BACKEND_CONTAINER}" \
+            "eastus"
+
+      - name: Terraform Init (Remote Backend)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${BACKEND_RG}" \
+            -backend-config="storage_account_name=${BACKEND_SA}" \
+            -backend-config="container_name=${BACKEND_CONTAINER}" \
+            -backend-config="key=${STATE_KEY}" \
+            -backend-config="use_azuread_auth=true"
+
+      - name: Terraform Format Check
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+      - name: Terraform Execute
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          set -euo pipefail
+
+          case "${ACTION}" in
+            plan)
+              terraform plan -var-file="${TFVARS_FILE}"
+              ;;
+            apply)
+              terraform plan -var-file="${TFVARS_FILE}" -out=tfplan
+              terraform apply -auto-approve tfplan
+              ;;
+            destroy)
+              terraform plan -destroy -var-file="${TFVARS_FILE}" -out=tfplan-destroy
+              terraform apply -auto-approve tfplan-destroy
+              ;;
+            refresh)
+              terraform refresh -var-file="${TFVARS_FILE}"
+              ;;
+            *)
+              echo "Unknown action: ${ACTION}"
+              exit 1
+              ;;
+          esac
