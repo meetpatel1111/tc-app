@@ -1,10 +1,10 @@
 name: Static Web App Deployment
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "app/**"
+  # push:
+  #   branches: [ main ]
+  #   paths:
+  #     - "app/**"
 
   workflow_dispatch:
     inputs:

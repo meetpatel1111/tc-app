@@ -6,10 +6,6 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.100"
     }
-    azuread = {
-      source  = "hashicorp/azuread"
-      version = "~> 2.50"
-    }
   }
 
   backend "azurerm" {}
@@ -18,8 +14,6 @@ terraform {
 provider "azurerm" {
   features {}
 }
-
-provider "azuread" {}
 
 # -----------------------------
 # Resource Group
@@ -48,30 +42,6 @@ resource "azurerm_static_web_app" "swa" {
 }
 
 # -----------------------------
-# Azure AD App Registration
-# -----------------------------
-
-resource "azuread_application" "swa_app" {
-  display_name = "${var.static_web_app_name}-auth"
-
-  dynamic "app_role" {
-    for_each = var.clients
-    content {
-      allowed_member_types = ["User"]
-      description          = "Access to ${app_role.key}"
-      display_name         = app_role.key
-      enabled              = true
-      id                   = uuidv5("dns", app_role.key)
-      value                = app_role.key
-    }
-  }
-}
-
-resource "azuread_service_principal" "swa_sp" {
-  client_id = azuread_application.swa_app.client_id
-}
-
-# -----------------------------
 # Outputs
 # -----------------------------
 
@@ -79,6 +49,10 @@ output "static_web_app_hostname" {
   value = azurerm_static_web_app.swa.default_host_name
 }
 
-output "app_registration_client_id" {
-  value = azuread_application.swa_app.client_id
+output "static_web_app_identity_principal_id" {
+  value = azurerm_static_web_app.swa.identity[0].principal_id
+}
+
+output "static_web_app_identity_tenant_id" {
+  value = azurerm_static_web_app.swa.identity[0].tenant_id
 }
