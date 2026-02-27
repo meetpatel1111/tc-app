@@ -72,23 +72,6 @@ resource "azuread_service_principal" "swa_sp" {
 }
 
 # -----------------------------
-# Static Web App Authentication
-# -----------------------------
-
-resource "azurerm_static_web_app_authentication" "auth" {
-  static_web_app_id = azurerm_static_web_app.swa.id
-
-  identity_provider {
-    provider_type = "AzureActiveDirectory"
-    registration {
-      client_id                  = azuread_application.swa_app.client_id
-      client_secret_setting_name = "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET"
-      issuer_authority           = "https://sts.windows.net/${azuread_application.swa_app.sign_in_audience}/"
-    }
-  }
-}
-
-# -----------------------------
 # Outputs
 # -----------------------------
 
