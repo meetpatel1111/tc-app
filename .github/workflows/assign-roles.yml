@@ -54,20 +54,27 @@ jobs:
         run: |
           CSV_FILE="invite-links.csv"
 
+          # ── Fetch all existing SWA users upfront ──────────────────────────────
+          echo "=== Fetching existing SWA users ==="
+          SWA_USERS=$(az staticwebapp users list \
+            --name "$SWA_NAME" \
+            --resource-group "$SWA_RG" \
+            --authentication-provider AzureActiveDirectory \
+            -o json 2>/dev/null) || SWA_USERS="[]"
+
+          echo "Found $(echo "$SWA_USERS" | jq length) existing SWA users:"
+          echo "$SWA_USERS" | jq -r '.[].properties | "  - \(.userDetails) (id: \(.userId), roles: \(.roles))"'
+
           # ── LIST mode ──────────────────────────────────────────────────────────
           if [ "${{ github.event.inputs.action }}" = "list" ]; then
-            echo "=== Current SWA Role Assignments ==="
-            az staticwebapp users list \
-              --name "$SWA_NAME" \
-              --resource-group "$SWA_RG" \
-              --authentication-provider AzureActiveDirectory \
-              --query "[].{Email:properties.userDetails, Roles:properties.roles}" \
-              -o table
+            echo ""
+            echo "$SWA_USERS" | jq -r '.[].properties | "\(.userDetails)\t\(.roles)"'
             exit 0
           fi
 
           # ── ASSIGN-ALL mode ────────────────────────────────────────────────────
           echo "email,roles,status,invite_link" > $CSV_FILE
+          echo ""
           echo "=== Assigning roles from users.json ==="
 
           USER_EMAILS=$(jq -r '.userAssignments | keys[]' scripts/users.json)
@@ -78,17 +85,14 @@ jobs:
             ROLES=$(jq -r ".userAssignments[\"$EMAIL\"] | join(\",\")" scripts/users.json)
             echo "  Target roles: $ROLES"
 
-            # Check if user already exists in SWA (has logged in before)
-            SWA_USER_ID=$(az staticwebapp users list \
-              --name "$SWA_NAME" \
-              --resource-group "$SWA_RG" \
-              --authentication-provider AzureActiveDirectory \
-              --query "[?properties.userDetails=='$EMAIL'].name | [0]" \
-              -o tsv 2>/dev/null) || true
+            # Search for this user in existing SWA users (by userDetails match)
+            SWA_USER_ID=$(echo "$SWA_USERS" | jq -r \
+              "[.[] | select(.properties.userDetails == \"$EMAIL\")] | .[0].name // empty") || true
 
-            if [ -n "$SWA_USER_ID" ] && [ "$SWA_USER_ID" != "None" ]; then
-              # ── Existing user → update roles directly ─────────────────────────
-              echo "  ✓ Existing SWA user (id: $SWA_USER_ID) — updating roles..."
+            if [ -n "$SWA_USER_ID" ]; then
+              # ── Existing user found → update roles directly (no invite!) ──────
+              echo "  ✓ Found existing SWA user (id: $SWA_USER_ID)"
+              echo "  Updating roles to: $ROLES"
               az staticwebapp users update \
                 --name "$SWA_NAME" \
                 --resource-group "$SWA_RG" \
@@ -96,12 +100,12 @@ jobs:
                 --user-id "$SWA_USER_ID" \
                 --roles "$ROLES" \
                 --only-show-errors
-              echo "  ✓ Roles updated to: $ROLES"
+              echo "  ✓ Roles updated — no invite needed"
               echo "$EMAIL,\"$ROLES\",roles_updated," >> $CSV_FILE
 
             else
-              # ── New user → generate invite link ───────────────────────────────
-              echo "  ℹ New user — generating invite link..."
+              # ── New user → generate one-time invite link ──────────────────────
+              echo "  ℹ User not in SWA yet — generating one-time invite link..."
               set +e
               INVITE_OUTPUT=$(az staticwebapp users invite \
                 --name "$SWA_NAME" \
@@ -117,14 +121,14 @@ jobs:
               if [ $INVITE_RC -eq 0 ]; then
                 INVITE=$(echo "$INVITE_OUTPUT" | jq -r '.invitationUrl // empty' 2>/dev/null) || true
                 if [ -n "$INVITE" ]; then
-                  echo "  ✓ Invite link generated for $EMAIL"
+                  echo "  ✓ Invite link generated (one-time only, expires in 7 days)"
                   echo "$EMAIL,\"$ROLES\",invite_generated,$INVITE" >> $CSV_FILE
                 else
                   echo "  ✗ Could not extract invite URL"
                   echo "$EMAIL,\"$ROLES\",failed," >> $CSV_FILE
                 fi
               else
-                echo "  ✗ Failed to generate invite for $EMAIL"
+                echo "  ✗ Failed to generate invite"
                 echo "  Error: $INVITE_OUTPUT"
                 echo "$EMAIL,\"$ROLES\",failed," >> $CSV_FILE
               fi
