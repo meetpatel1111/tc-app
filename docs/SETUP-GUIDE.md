@@ -57,10 +57,19 @@ clients = {
 
 After Terraform creates the SWA, you need the deployment token for the SWA deploy workflow.
 
+**Option A — Azure CLI:**
+
+```bash
+az staticwebapp secrets list --name tc-swa-dev --resource-group tc-swa-dev-rg --query "properties.apiKey" -o tsv
+```
+
+**Option B — Azure Portal:**
+
 1. Go to **Azure Portal → Static Web Apps → tc-swa-dev**
 2. Click **Overview → Manage deployment token**
 3. Copy the token
-4. Add it as GitHub secret: **`AZURE_STATIC_WEB_APPS_API_TOKEN`**
+
+**Then:** Add the token as GitHub secret → **`AZURE_STATIC_WEB_APPS_API_TOKEN`**
 
 > This is a one-time step per environment.
 
