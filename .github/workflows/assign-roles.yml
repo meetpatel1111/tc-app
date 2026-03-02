@@ -76,8 +76,11 @@ jobs:
             for EMAIL in $USER_EMAILS; do
               echo "Processing user: $EMAIL"
               
-              # Check if user exists
+              # Check if user exists (direct UPN lookup first, then mail attribute for guests)
               USER_ID=$(az ad user show --id "$EMAIL" --query "id" -o tsv 2>/dev/null) || true
+              if [ -z "$USER_ID" ]; then
+                USER_ID=$(az ad user list --filter "mail eq '$EMAIL'" --query "[0].id" -o tsv 2>/dev/null) || true
+              fi
               
               if [ -n "$USER_ID" ]; then
                 echo "  ✓ User found: $EMAIL (objectId: $USER_ID)"
