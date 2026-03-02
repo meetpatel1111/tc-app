@@ -41,12 +41,13 @@ if ($ListUsers) {
 }
 
 if ($AssignAll) {
-    # Define your users here
-    $userAssignments = @{
-        "user1@company.com" = @("client1")
-        "user2@company.com" = @("client1", "client2")
-        "user3@company.com" = @("client2")
-        "meetkumar.patel@pmeet464gmail.onmicrosoft.com" = @("client1", "client2")
+    # Read user assignments from JSON file
+    $jsonPath = Join-Path $PSScriptRoot "users.json"
+    if (Test-Path $jsonPath) {
+        $userAssignments = (Get-Content $jsonPath | ConvertFrom-Json).userAssignments
+    } else {
+        Write-Host "users.json file not found at $jsonPath" -ForegroundColor Red
+        return
     }
     
     Write-Host "`n=== Assigning roles ===" -ForegroundColor Green

@@ -1,0 +1,58 @@
+name: Assign User Roles
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to assign roles"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, test]
+      action:
+        description: "Action to perform"
+        required: true
+        default: "list"
+        type: choice
+        options: [list, assign-all]
+
+env:
+  ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+  ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+  ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+  ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+
+jobs:
+  assign-roles:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup PowerShell
+        uses: azure/powershell@v1
+        with:
+          azPSVersion: 'latest'
+          inlineScript: |
+            # Install Azure AD module
+            Install-Module -Name AzureAD -Force -Scope CurrentUser
+            
+            # Connect to Azure AD
+            Connect-AzureAD -TenantId ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+            
+            # Run the role assignment script
+            $scriptPath = "scripts/assign-roles.ps1"
+            $action = "${{ github.event.inputs.action }}"
+            $environment = "${{ github.event.inputs.environment }}"
+            
+            if ($action -eq "list") {
+              & $scriptPath -Environment $environment -ListUsers
+            } elseif ($action -eq "assign-all") {
+              & $scriptPath -Environment $environment -AssignAll
+            }
