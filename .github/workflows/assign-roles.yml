@@ -46,27 +46,28 @@ jobs:
             echo "SWA_RG=tc-swa-test-rg" >> $GITHUB_ENV
             echo "SWA_DOMAIN=YOUR-TEST-SWA-DOMAIN.azurestaticapps.net" >> $GITHUB_ENV
           fi
-          echo "SUB_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}" >> $GITHUB_ENV
+
+      - name: Install staticwebapp Azure CLI extension
+        run: az extension add --name staticwebapp --yes
 
       - name: Assign / List SWA Roles
         run: |
-          BASE_URL="https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$SWA_RG/providers/Microsoft.Web/staticSites/$SWA_NAME"
-          API_VER="?api-version=2022-03-01"
           CSV_FILE="invite-links.csv"
 
           # ── LIST mode ──────────────────────────────────────────────────────────
           if [ "${{ github.event.inputs.action }}" = "list" ]; then
             echo "=== Current SWA Role Assignments ==="
-            az rest --method GET \
-              --url "${BASE_URL}/users${API_VER}" \
-              --query "value[].{Email:properties.userDetails, Roles:properties.roles, Provider:properties.provider}" \
+            az staticwebapp users list \
+              --name "$SWA_NAME" \
+              --resource-group "$SWA_RG" \
+              --authentication-provider AzureActiveDirectory \
+              --query "[].{Email:properties.userDetails, Roles:properties.roles}" \
               -o table
             exit 0
           fi
 
           # ── ASSIGN-ALL mode ────────────────────────────────────────────────────
           echo "email,roles,status,invite_link" > $CSV_FILE
-
           echo "=== Assigning roles from users.json ==="
 
           USER_EMAILS=$(jq -r '.userAssignments | keys[]' scripts/users.json)
@@ -77,48 +78,47 @@ jobs:
             ROLES=$(jq -r ".userAssignments[\"$EMAIL\"] | join(\",\")" scripts/users.json)
             echo "  Target roles: $ROLES"
 
-            # Check if user already exists in SWA
-            SWA_USER=$(az rest --method GET \
-              --url "${BASE_URL}/users${API_VER}" \
-              --query "value[?properties.userDetails=='$EMAIL'] | [0]" \
-              -o json 2>/dev/null) || true
+            # Check if user already exists in SWA (has logged in before)
+            SWA_USER_ID=$(az staticwebapp users list \
+              --name "$SWA_NAME" \
+              --resource-group "$SWA_RG" \
+              --authentication-provider AzureActiveDirectory \
+              --query "[?properties.userDetails=='$EMAIL'].name | [0]" \
+              -o tsv 2>/dev/null) || true
 
-            SWA_USER_ID=$(echo "$SWA_USER" | jq -r '.name // empty' 2>/dev/null) || true
-            SWA_PROVIDER=$(echo "$SWA_USER" | jq -r '.properties.provider // empty' 2>/dev/null) || true
-
-            if [ -n "$SWA_USER_ID" ] && [ -n "$SWA_PROVIDER" ]; then
-              # Existing user — update roles directly
-              echo "  ✓ Existing user — updating roles to: $ROLES"
-              az rest --method PUT \
-                --url "${BASE_URL}/authproviders/$SWA_PROVIDER/users/$SWA_USER_ID${API_VER}" \
-                --body "{\"properties\": {\"roles\": \"$ROLES\"}}" \
+            if [ -n "$SWA_USER_ID" ] && [ "$SWA_USER_ID" != "None" ]; then
+              # ── Existing user → update roles directly ─────────────────────────
+              echo "  ✓ Existing SWA user (id: $SWA_USER_ID) — updating roles..."
+              az staticwebapp users update \
+                --name "$SWA_NAME" \
+                --resource-group "$SWA_RG" \
+                --authentication-provider AzureActiveDirectory \
+                --user-id "$SWA_USER_ID" \
+                --roles "$ROLES" \
                 --only-show-errors
+              echo "  ✓ Roles updated to: $ROLES"
               echo "$EMAIL,\"$ROLES\",roles_updated," >> $CSV_FILE
-              echo "  ✓ Done"
 
             else
-              # New user — generate invite link
+              # ── New user → generate invite link ───────────────────────────────
               echo "  ℹ New user — generating invite link..."
-              INVITE=$(az rest --method POST \
-                --url "${BASE_URL}/createUserRolesInvitationLink${API_VER}" \
-                --body "{
-                  \"properties\": {
-                    \"domain\": \"$SWA_DOMAIN\",
-                    \"provider\": \"aad\",
-                    \"userDetails\": \"$EMAIL\",
-                    \"roles\": \"$ROLES\",
-                    \"numHoursToExpiration\": 168
-                  }
-                }" \
+              INVITE=$(az staticwebapp users invite \
+                --name "$SWA_NAME" \
+                --resource-group "$SWA_RG" \
+                --authentication-provider AzureActiveDirectory \
+                --user-details "$EMAIL" \
+                --role "$ROLES" \
+                --invitation-expiration-in-hours 168 \
+                --domain "$SWA_DOMAIN" \
                 --query "properties.invitationUrl" \
                 -o tsv) || true
 
-              if [ -n "$INVITE" ]; then
-                echo "$EMAIL,$ROLES,invite_generated,$INVITE" >> $CSV_FILE
-                echo "  ✓ Invite link generated"
+              if [ -n "$INVITE" ] && [ "$INVITE" != "None" ]; then
+                echo "  ✓ Invite link generated for $EMAIL"
+                echo "$EMAIL,\"$ROLES\",invite_generated,$INVITE" >> $CSV_FILE
               else
-                echo "$EMAIL,$ROLES,failed," >> $CSV_FILE
-                echo "  ✗ Failed to generate invite"
+                echo "  ✗ Failed to generate invite for $EMAIL"
+                echo "$EMAIL,\"$ROLES\",failed," >> $CSV_FILE
               fi
             fi
           done
