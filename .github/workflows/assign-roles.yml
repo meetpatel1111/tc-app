@@ -80,7 +80,7 @@ jobs:
               USER_ID=$(az ad user show --id "$EMAIL" --query "id" -o tsv 2>/dev/null)
               
               if [ -n "$USER_ID" ]; then
-                echo "  ✓ User found: $EMAIL"
+                echo "  ✓ User found: $EMAIL (objectId: $USER_ID)"
                 
                 # Get roles for this user
                 ROLES=$(jq -r ".userAssignments[\"$EMAIL\"][]" scripts/users.json)
@@ -90,14 +90,20 @@ jobs:
                   ROLE_ID=$(az ad app list --display-name "$APP_NAME" --query "[0].appRoles[?displayName=='$ROLE'].id" -o tsv)
                   
                   if [ -n "$ROLE_ID" ]; then
-                    # Check if role already assigned
-                    EXISTING=$(az ad app role assignment list --sp-object-id $SP_ID --query "[?principalId=='$USER_ID' && appRoleId=='$ROLE_ID'].id" -o tsv 2>/dev/null)
+                    echo "    Role ID: $ROLE_ID | SP ID: $SP_ID"
+                    
+                    # Check if role already assigned via Graph API
+                    EXISTING=$(az rest --method GET \
+                      --url "https://graph.microsoft.com/v1.0/users/$USER_ID/appRoleAssignments" \
+                      --query "value[?resourceId=='$SP_ID' && appRoleId=='$ROLE_ID'].id" \
+                      -o tsv 2>/dev/null)
                     
                     if [ -z "$EXISTING" ]; then
-                      az ad app role assignment create \
-                        --id $ROLE_ID \
-                        --principal-object-id $USER_ID \
-                        --resource-id $SP_ID
+                      # Assign role via Graph API (version-independent)
+                      az rest --method POST \
+                        --url "https://graph.microsoft.com/v1.0/users/$USER_ID/appRoleAssignments" \
+                        --headers "Content-Type=application/json" \
+                        --body "{\"principalId\": \"$USER_ID\", \"resourceId\": \"$SP_ID\", \"appRoleId\": \"$ROLE_ID\"}"
                       echo "    ✓ Assigned $ROLE to $EMAIL"
                     else
                       echo "    ⚠ $ROLE already assigned to $EMAIL"
