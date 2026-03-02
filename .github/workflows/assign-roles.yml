@@ -62,14 +62,12 @@ jobs:
             -o json) || SWA_USERS="[]"
 
           echo "Found $(echo "$SWA_USERS" | jq length) existing SWA users:"
-          echo "Raw JSON:" 
-          echo "$SWA_USERS" | jq '.[0]'
-          echo "$SWA_USERS" | jq -r '.[].properties | "  - \(.userDetails) (id: \(.userId), roles: \(.roles))"'
+          echo "$SWA_USERS" | jq -r '.[] | "  - \(.displayName) (id: \(.userId), roles: \(.roles))"'
 
           # ── LIST mode ──────────────────────────────────────────────────────────
           if [ "${{ github.event.inputs.action }}" = "list" ]; then
             echo ""
-            echo "$SWA_USERS" | jq -r '.[].properties | "\(.userDetails)\t\(.roles)"'
+            echo "$SWA_USERS" | jq -r '.[] | "\(.displayName)\t\(.roles)"'
             exit 0
           fi
 
@@ -88,7 +86,7 @@ jobs:
 
             # Search for this user in existing SWA users (by userDetails match)
             SWA_USER_ID=$(echo "$SWA_USERS" | jq -r \
-              "[.[] | select(.properties.userDetails == \"$EMAIL\")] | .[0].name // empty") || true
+              "[.[] | select(.displayName == \"$EMAIL\")] | .[0].userId // empty") || true
 
             if [ -n "$SWA_USER_ID" ]; then
               # ── Existing user found → update roles directly (no invite!) ──────
