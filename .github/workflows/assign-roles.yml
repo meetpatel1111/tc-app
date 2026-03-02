@@ -59,7 +59,7 @@ jobs:
             echo "=== Current SWA Role Assignments ==="
             az rest --method GET \
               --url "${BASE_URL}/users${API_VER}" \
-              --query "value[].{Email:properties.displayName, Roles:properties.roles, Provider:properties.provider}" \
+              --query "value[].{Email:properties.userDetails, Roles:properties.roles, Provider:properties.provider}" \
               -o table
             exit 0
           fi
@@ -80,7 +80,7 @@ jobs:
             # Check if user already exists in SWA
             SWA_USER=$(az rest --method GET \
               --url "${BASE_URL}/users${API_VER}" \
-              --query "value[?properties.displayName=='$EMAIL'] | [0]" \
+              --query "value[?properties.userDetails=='$EMAIL'] | [0]" \
               -o json 2>/dev/null) || true
 
             SWA_USER_ID=$(echo "$SWA_USER" | jq -r '.name // empty' 2>/dev/null) || true
@@ -93,7 +93,7 @@ jobs:
                 --url "${BASE_URL}/authproviders/$SWA_PROVIDER/users/$SWA_USER_ID${API_VER}" \
                 --body "{\"properties\": {\"roles\": \"$ROLES\"}}" \
                 --only-show-errors
-              echo "$EMAIL,$ROLES,roles_updated," >> $CSV_FILE
+              echo "$EMAIL,\"$ROLES\",roles_updated," >> $CSV_FILE
               echo "  ✓ Done"
 
             else
@@ -111,7 +111,7 @@ jobs:
                   }
                 }" \
                 --query "properties.invitationUrl" \
-                -o tsv 2>/dev/null) || true
+                -o tsv) || true
 
               if [ -n "$INVITE" ]; then
                 echo "$EMAIL,$ROLES,invite_generated,$INVITE" >> $CSV_FILE
