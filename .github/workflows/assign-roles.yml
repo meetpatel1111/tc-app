@@ -102,20 +102,30 @@ jobs:
             else
               # ── New user → generate invite link ───────────────────────────────
               echo "  ℹ New user — generating invite link..."
-              INVITE=$(az staticwebapp users invite \
+              set +e
+              INVITE_OUTPUT=$(az staticwebapp users invite \
                 --name "$SWA_NAME" \
                 --resource-group "$SWA_RG" \
                 --authentication-provider AzureActiveDirectory \
                 --user-details "$EMAIL" \
                 --role "$ROLES" \
                 --invitation-expiration-in-hours 168 \
-                --domain "$SWA_DOMAIN" \
-                --query "properties.invitationUrl" \
-                -o tsv) || true
+                --domain "$SWA_DOMAIN" 2>&1)
+              INVITE_RC=$?
+              set -e
 
-              if [ -n "$INVITE" ] && [ "$INVITE" != "None" ]; then
-                echo "  ✓ Invite link generated for $EMAIL"
-                echo "$EMAIL,\"$ROLES\",invite_generated,$INVITE" >> $CSV_FILE
+              echo "  Debug: exit code=$INVITE_RC"
+              echo "  Debug: output=$INVITE_OUTPUT"
+
+              if [ $INVITE_RC -eq 0 ]; then
+                INVITE=$(echo "$INVITE_OUTPUT" | jq -r '.properties.invitationUrl // empty' 2>/dev/null) || true
+                if [ -n "$INVITE" ]; then
+                  echo "  ✓ Invite link generated for $EMAIL"
+                  echo "$EMAIL,\"$ROLES\",invite_generated,$INVITE" >> $CSV_FILE
+                else
+                  echo "  ✗ Could not extract invite URL"
+                  echo "$EMAIL,\"$ROLES\",failed," >> $CSV_FILE
+                fi
               else
                 echo "  ✗ Failed to generate invite for $EMAIL"
                 echo "$EMAIL,\"$ROLES\",failed," >> $CSV_FILE
