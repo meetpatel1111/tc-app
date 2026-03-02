@@ -77,7 +77,7 @@ jobs:
               echo "Processing user: $EMAIL"
               
               # Check if user exists
-              USER_ID=$(az ad user show --id "$EMAIL" --query "id" -o tsv 2>/dev/null)
+              USER_ID=$(az ad user show --id "$EMAIL" --query "id" -o tsv 2>/dev/null) || true
               
               if [ -n "$USER_ID" ]; then
                 echo "  ✓ User found: $EMAIL (objectId: $USER_ID)"
