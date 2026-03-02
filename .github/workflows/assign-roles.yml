@@ -63,7 +63,8 @@ jobs:
           
           if [ "${{ github.event.inputs.action }}" = "list" ]; then
             echo "=== Current Role Assignments ==="
-            az ad app role assignment list --filter "resourceId eq '$SP_ID'" --output table
+            az ad sp list --display-name "$APP_NAME" --query "[0].id" -o tsv
+            az ad app role assignment list --sp-object-id $SP_ID --output table
           fi
           
           if [ "${{ github.event.inputs.action }}" = "assign-all" ]; then
@@ -90,10 +91,13 @@ jobs:
                   
                   if [ -n "$ROLE_ID" ]; then
                     # Check if role already assigned
-                    EXISTING=$(az ad app role assignment list --assignee $USER_ID --filter "resourceId eq '$SP_ID'" --query "[?id=='$ROLE_ID']" --output tsv)
+                    EXISTING=$(az ad app role assignment list --sp-object-id $SP_ID --query "[?principalId=='$USER_ID' && appRoleId=='$ROLE_ID'].id" -o tsv 2>/dev/null)
                     
                     if [ -z "$EXISTING" ]; then
-                      az ad app role assignment create --assignee $USER_ID --role $ROLE_ID --resource-id $SP_ID --only-show-errors
+                      az ad app role assignment create \
+                        --id $ROLE_ID \
+                        --principal-object-id $USER_ID \
+                        --resource-id $SP_ID
                       echo "    ✓ Assigned $ROLE to $EMAIL"
                     else
                       echo "    ⚠ $ROLE already assigned to $EMAIL"
