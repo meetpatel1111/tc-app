@@ -1,8 +1,12 @@
 {
   "userAssignments": {
-    "user1@company.com": ["client1"],
-    "user2@company.com": ["client1", "client2"],
-    "user3@company.com": ["client2"],
-    "meetkumar.patel@pmeet464gmail.onmicrosoft.com": ["client1", "client2"]
+    "meetkumar.patel@pmeet464gmail.onmicrosoft.com": [
+      "client1",
+      "client2"
+    ],
+    "pmeet464@gmail.com": [
+      "client1",
+      "client2"
+    ]
   }
 }
