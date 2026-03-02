@@ -62,6 +62,8 @@ jobs:
             -o json) || SWA_USERS="[]"
 
           echo "Found $(echo "$SWA_USERS" | jq length) existing SWA users:"
+          echo "Raw JSON:" 
+          echo "$SWA_USERS" | jq '.[0]'
           echo "$SWA_USERS" | jq -r '.[].properties | "  - \(.userDetails) (id: \(.userId), roles: \(.roles))"'
 
           # ── LIST mode ──────────────────────────────────────────────────────────
