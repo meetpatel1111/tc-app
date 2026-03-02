@@ -59,8 +59,7 @@ jobs:
           SWA_USERS=$(az staticwebapp users list \
             --name "$SWA_NAME" \
             --resource-group "$SWA_RG" \
-            --authentication-provider aad \
-            -o json 2>/dev/null) || SWA_USERS="[]"
+            -o json) || SWA_USERS="[]"
 
           echo "Found $(echo "$SWA_USERS" | jq length) existing SWA users:"
           echo "$SWA_USERS" | jq -r '.[].properties | "  - \(.userDetails) (id: \(.userId), roles: \(.roles))"'
