@@ -59,7 +59,7 @@ jobs:
           SWA_USERS=$(az staticwebapp users list \
             --name "$SWA_NAME" \
             --resource-group "$SWA_RG" \
-            --authentication-provider AzureActiveDirectory \
+            --authentication-provider aad \
             -o json 2>/dev/null) || SWA_USERS="[]"
 
           echo "Found $(echo "$SWA_USERS" | jq length) existing SWA users:"
@@ -96,7 +96,7 @@ jobs:
               az staticwebapp users update \
                 --name "$SWA_NAME" \
                 --resource-group "$SWA_RG" \
-                --authentication-provider AzureActiveDirectory \
+                --authentication-provider aad \
                 --user-id "$SWA_USER_ID" \
                 --roles "$ROLES" \
                 --only-show-errors
@@ -110,7 +110,7 @@ jobs:
               INVITE_OUTPUT=$(az staticwebapp users invite \
                 --name "$SWA_NAME" \
                 --resource-group "$SWA_RG" \
-                --authentication-provider AzureActiveDirectory \
+                --authentication-provider aad \
                 --user-details "$EMAIL" \
                 --role "$ROLES" \
                 --invitation-expiration-in-hours 168 \
