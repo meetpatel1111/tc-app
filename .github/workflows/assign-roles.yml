@@ -114,11 +114,8 @@ jobs:
               INVITE_RC=$?
               set -e
 
-              echo "  Debug: exit code=$INVITE_RC"
-              echo "  Debug: output=$INVITE_OUTPUT"
-
               if [ $INVITE_RC -eq 0 ]; then
-                INVITE=$(echo "$INVITE_OUTPUT" | jq -r '.properties.invitationUrl // empty' 2>/dev/null) || true
+                INVITE=$(echo "$INVITE_OUTPUT" | jq -r '.invitationUrl // empty' 2>/dev/null) || true
                 if [ -n "$INVITE" ]; then
                   echo "  ✓ Invite link generated for $EMAIL"
                   echo "$EMAIL,\"$ROLES\",invite_generated,$INVITE" >> $CSV_FILE
@@ -128,6 +125,7 @@ jobs:
                 fi
               else
                 echo "  ✗ Failed to generate invite for $EMAIL"
+                echo "  Error: $INVITE_OUTPUT"
                 echo "$EMAIL,\"$ROLES\",failed," >> $CSV_FILE
               fi
             fi
