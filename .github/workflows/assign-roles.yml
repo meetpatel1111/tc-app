@@ -93,7 +93,7 @@ jobs:
                     EXISTING=$(az ad app role assignment list --assignee $USER_ID --filter "resourceId eq '$SP_ID'" --query "[?id=='$ROLE_ID']" --output tsv)
                     
                     if [ -z "$EXISTING" ]; then
-                      az ad app role assignment create --assignee $USER_ID --role-definition-id $ROLE_ID --resource $SP_ID --only-show-errors
+                      az ad app role assignment create --assignee $USER_ID --role $ROLE_ID --resource-id $SP_ID --only-show-errors
                       echo "    ✓ Assigned $ROLE to $EMAIL"
                     else
                       echo "    ⚠ $ROLE already assigned to $EMAIL"
