@@ -1,10 +1,10 @@
-name: Assign User Roles
+name: Assign SWA User Roles
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Environment to assign roles"
+        description: "Environment (dev, test)"
         required: true
         default: "dev"
         type: choice
@@ -12,7 +12,7 @@ on:
       action:
         description: "Action to perform"
         required: true
-        default: "list"
+        default: "assign-all"
         type: choice
         options: [list, assign-all]
 
@@ -25,7 +25,7 @@ env:
 jobs:
   assign-roles:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,94 +35,102 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Assign Roles
+      - name: Set Environment Variables
         run: |
-          # Get app details
-          APP_NAME="tc-swa-${{ github.event.inputs.environment }}-auth"
-          APP_ID=$(az ad app list --display-name "$APP_NAME" --query "[0].appId" -o tsv)
-          SP_ID=$(az ad sp list --display-name "$APP_NAME" --query "[0].id" -o tsv)
-          
-          # Validate app exists
-          if [ -z "$APP_ID" ]; then
-            echo "❌ ERROR: Azure AD app '$APP_NAME' not found!"
-            echo "Available apps:"
-            az ad app list --query "[].displayName" --output tsv | grep swa | sed 's/^/  - /'
-            exit 1
+          if [ "${{ github.event.inputs.environment }}" = "dev" ]; then
+            echo "SWA_NAME=tc-swa-dev" >> $GITHUB_ENV
+            echo "SWA_RG=tc-swa-dev-rg" >> $GITHUB_ENV
+            echo "SWA_DOMAIN=blue-smoke-087c3fd0f.6.azurestaticapps.net" >> $GITHUB_ENV
+          else
+            echo "SWA_NAME=tc-swa-test" >> $GITHUB_ENV
+            echo "SWA_RG=tc-swa-test-rg" >> $GITHUB_ENV
+            echo "SWA_DOMAIN=YOUR-TEST-SWA-DOMAIN.azurestaticapps.net" >> $GITHUB_ENV
           fi
-          
-          if [ -z "$SP_ID" ]; then
-            echo "❌ ERROR: Service Principal for '$APP_NAME' not found!"
-            echo "Creating service principal..."
-            az ad sp create --id $APP_ID
-            SP_ID=$(az ad sp list --display-name "$APP_NAME" --query "[0].id" -o tsv)
-          fi
-          
-          echo "=== Azure AD App: $APP_NAME ==="
-          echo "App ID: $APP_ID"
-          echo "Service Principal ID: $SP_ID"
-          
+          echo "SUB_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}" >> $GITHUB_ENV
+
+      - name: Assign / List SWA Roles
+        run: |
+          BASE_URL="https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$SWA_RG/providers/Microsoft.Web/staticSites/$SWA_NAME"
+          API_VER="?api-version=2022-03-01"
+          CSV_FILE="invite-links.csv"
+
+          # ── LIST mode ──────────────────────────────────────────────────────────
           if [ "${{ github.event.inputs.action }}" = "list" ]; then
-            echo "=== Current Role Assignments ==="
-            az ad sp list --display-name "$APP_NAME" --query "[0].id" -o tsv
-            az ad app role assignment list --sp-object-id $SP_ID --output table
+            echo "=== Current SWA Role Assignments ==="
+            az rest --method GET \
+              --url "${BASE_URL}/users${API_VER}" \
+              --query "value[].{Email:properties.displayName, Roles:properties.roles, Provider:properties.provider}" \
+              -o table
+            exit 0
           fi
-          
-          if [ "${{ github.event.inputs.action }}" = "assign-all" ]; then
-            echo "=== Assigning roles from users.json ==="
-            
-            # Read users.json and assign roles
-            USER_EMAILS=$(jq -r '.userAssignments | keys[]' scripts/users.json)
-            
-            for EMAIL in $USER_EMAILS; do
-              echo "Processing user: $EMAIL"
-              
-              # Check if user exists (direct UPN lookup first, then mail attribute for guests)
-              USER_ID=$(az ad user show --id "$EMAIL" --query "id" -o tsv 2>/dev/null) || true
-              if [ -z "$USER_ID" ]; then
-                USER_ID=$(az ad user list --filter "mail eq '$EMAIL'" --query "[0].id" -o tsv 2>/dev/null) || true
-              fi
-              
-              if [ -n "$USER_ID" ]; then
-                echo "  ✓ User found: $EMAIL (objectId: $USER_ID)"
-                
-                # Get roles for this user
-                ROLES=$(jq -r ".userAssignments[\"$EMAIL\"][]" scripts/users.json)
-                
-                for ROLE in $ROLES; do
-                  echo "  Assigning role: $ROLE"
-                  ROLE_ID=$(az ad app list --display-name "$APP_NAME" --query "[0].appRoles[?displayName=='$ROLE'].id" -o tsv)
-                  
-                  if [ -n "$ROLE_ID" ]; then
-                    echo "    Role ID: $ROLE_ID | SP ID: $SP_ID"
-                    
-                    # Check if role already assigned via Graph API
-                    EXISTING=$(az rest --method GET \
-                      --url "https://graph.microsoft.com/v1.0/users/$USER_ID/appRoleAssignments" \
-                      --query "value[?resourceId=='$SP_ID' && appRoleId=='$ROLE_ID'].id" \
-                      -o tsv 2>/dev/null)
-                    
-                    if [ -z "$EXISTING" ]; then
-                      # Assign role via Graph API (version-independent)
-                      az rest --method POST \
-                        --url "https://graph.microsoft.com/v1.0/users/$USER_ID/appRoleAssignments" \
-                        --headers "Content-Type=application/json" \
-                        --body "{\"principalId\": \"$USER_ID\", \"resourceId\": \"$SP_ID\", \"appRoleId\": \"$ROLE_ID\"}"
-                      echo "    ✓ Assigned $ROLE to $EMAIL"
-                    else
-                      echo "    ⚠ $ROLE already assigned to $EMAIL"
-                    fi
-                  else
-                    echo "    ✗ Role not found: $ROLE"
-                    echo "    Available roles:"
-                    az ad app list --display-name "$APP_NAME" --query "[0].appRoles[].displayName" --output tsv | sed 's/^/      - /'
-                  fi
-                done
+
+          # ── ASSIGN-ALL mode ────────────────────────────────────────────────────
+          echo "email,roles,status,invite_link" > $CSV_FILE
+
+          echo "=== Assigning roles from users.json ==="
+
+          USER_EMAILS=$(jq -r '.userAssignments | keys[]' scripts/users.json)
+
+          for EMAIL in $USER_EMAILS; do
+            echo ""
+            echo "Processing: $EMAIL"
+            ROLES=$(jq -r ".userAssignments[\"$EMAIL\"] | join(\",\")" scripts/users.json)
+            echo "  Target roles: $ROLES"
+
+            # Check if user already exists in SWA
+            SWA_USER=$(az rest --method GET \
+              --url "${BASE_URL}/users${API_VER}" \
+              --query "value[?properties.displayName=='$EMAIL'] | [0]" \
+              -o json 2>/dev/null) || true
+
+            SWA_USER_ID=$(echo "$SWA_USER" | jq -r '.name // empty' 2>/dev/null) || true
+            SWA_PROVIDER=$(echo "$SWA_USER" | jq -r '.properties.provider // empty' 2>/dev/null) || true
+
+            if [ -n "$SWA_USER_ID" ] && [ -n "$SWA_PROVIDER" ]; then
+              # Existing user — update roles directly
+              echo "  ✓ Existing user — updating roles to: $ROLES"
+              az rest --method PUT \
+                --url "${BASE_URL}/authproviders/$SWA_PROVIDER/users/$SWA_USER_ID${API_VER}" \
+                --body "{\"properties\": {\"roles\": \"$ROLES\"}}" \
+                --only-show-errors
+              echo "$EMAIL,$ROLES,roles_updated," >> $CSV_FILE
+              echo "  ✓ Done"
+
+            else
+              # New user — generate invite link
+              echo "  ℹ New user — generating invite link..."
+              INVITE=$(az rest --method POST \
+                --url "${BASE_URL}/createUserRolesInvitationLink${API_VER}" \
+                --body "{
+                  \"properties\": {
+                    \"domain\": \"$SWA_DOMAIN\",
+                    \"provider\": \"aad\",
+                    \"userDetails\": \"$EMAIL\",
+                    \"roles\": \"$ROLES\",
+                    \"numHoursToExpiration\": 168
+                  }
+                }" \
+                --query "properties.invitationUrl" \
+                -o tsv 2>/dev/null) || true
+
+              if [ -n "$INVITE" ]; then
+                echo "$EMAIL,$ROLES,invite_generated,$INVITE" >> $CSV_FILE
+                echo "  ✓ Invite link generated"
               else
-                echo "  ✗ User not found: $EMAIL"
-                echo "    Skipping this user - they don't exist in Azure AD"
-                echo "    Available users in tenant:"
-                az ad user list --query "[].userPrincipalName" --output tsv | head -5 | sed 's/^/      - /'
+                echo "$EMAIL,$ROLES,failed," >> $CSV_FILE
+                echo "  ✗ Failed to generate invite"
               fi
-              echo ""
-            done
-          fi
+            fi
+          done
+
+          echo ""
+          echo "=== Summary CSV ==="
+          cat $CSV_FILE
+
+      - name: Upload invite CSV as artifact
+        if: ${{ github.event.inputs.action == 'assign-all' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: invite-links-${{ github.event.inputs.environment }}-${{ github.run_id }}
+          path: invite-links.csv
+          retention-days: 3
