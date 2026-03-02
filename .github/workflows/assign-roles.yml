@@ -40,12 +40,16 @@ jobs:
           if [ "${{ github.event.inputs.environment }}" = "dev" ]; then
             echo "SWA_NAME=tc-swa-dev" >> $GITHUB_ENV
             echo "SWA_RG=tc-swa-dev-rg" >> $GITHUB_ENV
-            echo "SWA_DOMAIN=blue-smoke-087c3fd0f.6.azurestaticapps.net" >> $GITHUB_ENV
           else
             echo "SWA_NAME=tc-swa-test" >> $GITHUB_ENV
             echo "SWA_RG=tc-swa-test-rg" >> $GITHUB_ENV
-            echo "SWA_DOMAIN=YOUR-TEST-SWA-DOMAIN.azurestaticapps.net" >> $GITHUB_ENV
           fi
+
+      - name: Fetch SWA Domain
+        run: |
+          DOMAIN=$(az staticwebapp show --name "$SWA_NAME" --resource-group "$SWA_RG" --query "defaultHostname" -o tsv)
+          echo "SWA_DOMAIN=$DOMAIN" >> $GITHUB_ENV
+          echo "SWA Domain: $DOMAIN"
 
       - name: Install staticwebapp Azure CLI extension
         run: az extension add --name staticwebapp --yes
