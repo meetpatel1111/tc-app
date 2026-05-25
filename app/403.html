@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>403 - Access Denied</title>
+
+    <meta name="robots" content="noindex,nofollow" />
+
+    <style>
+        :root {
+            --bg: #f4f6f9;
+            --card-bg: #ffffff;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --danger: #c62828;
+            --primary: #1976d2;
+            --primary-hover: #125aa0;
+            --shadow: rgba(0, 0, 0, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            padding: 20px;
+
+            background-color: var(--bg);
+
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Arial,
+                sans-serif;
+
+            color: var(--text);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 520px;
+
+            background: var(--card-bg);
+
+            border-radius: 14px;
+
+            padding: 42px;
+
+            text-align: center;
+
+            box-shadow:
+                0 10px 30px var(--shadow);
+        }
+
+        .icon {
+            font-size: 54px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0 0 12px;
+
+            font-size: 32px;
+            color: var(--danger);
+        }
+
+        .status {
+            font-size: 14px;
+            font-weight: 600;
+
+            letter-spacing: 1px;
+            text-transform: uppercase;
+
+            color: var(--danger);
+
+            margin-bottom: 18px;
+        }
+
+        p {
+            margin: 12px 0;
+
+            color: var(--muted);
+
+            line-height: 1.6;
+        }
+
+        .actions {
+            margin-top: 28px;
+
+            display: flex;
+            gap: 12px;
+
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+
+            min-width: 140px;
+
+            padding: 12px 18px;
+
+            border-radius: 8px;
+
+            text-decoration: none;
+
+            font-weight: 600;
+
+            transition:
+                background-color 0.2s ease,
+                transform 0.15s ease;
+        }
+
+        .button-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .button-primary:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .button-secondary {
+            background-color: #e5e7eb;
+            color: #111827;
+        }
+
+        .button-secondary:hover {
+            background-color: #d1d5db;
+            transform: translateY(-1px);
+        }
+
+        .footer {
+            margin-top: 28px;
+
+            font-size: 13px;
+            color: #9ca3af;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 32px 24px;
+            }
+
+            h1 {
+                font-size: 28px;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #111827;
+                --card-bg: #1f2937;
+                --text: #f9fafb;
+                --muted: #d1d5db;
+                --shadow: rgba(0, 0, 0, 0.4);
+            }
+
+            .button-secondary {
+                background-color: #374151;
+                color: #f9fafb;
+            }
+
+            .button-secondary:hover {
+                background-color: #4b5563;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="container">
+        <div class="icon">⛔</div>
+
+        <div class="status">403 Forbidden</div>
+
+        <h1>Access Denied</h1>
+
+        <p>
+            You are authenticated, but you do not have permission
+            to access this client area or resource.
+        </p>
+
+        <p>
+            If you believe this is incorrect, contact your
+            administrator or support team.
+        </p>
+
+        <div class="actions">
+            <a class="button button-primary" href="/">
+                Return Home
+            </a>
+
+            <a class="button button-secondary" href="/.auth/logout">
+                Sign Out
+            </a>
+        </div>
+
+        <div class="footer">
+            HTTP 403 • Azure Static Web Apps Authorization
+        </div>
+    </main>
+</body>
+</html>
