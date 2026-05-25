@@ -4,111 +4,231 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Environment to deploy (dev, test)"
+        description: "Environment to deploy"
         required: true
-        default: "dev"
+        default: dev
         type: choice
-        options: [dev, test]
+        options:
+          - dev
+          - test
 
       action:
-        description: "Terraform action (plan, apply, destroy, refresh)"
-        required: false
-        default: "apply"
+        description: "Terraform action"
+        required: true
+        default: apply
         type: choice
-        options: [plan, apply, destroy, refresh]
+        options:
+          - plan
+          - apply
+          - destroy
+          - refresh
+
+concurrency:
+  group: terraform-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
 
 env:
   TF_DIR: infra
+
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
+
+  TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
 
   BACKEND_RG: tfstate-uks-shared-rg
   BACKEND_SA: sttfstateshared
   BACKEND_CONTAINER: tfstate
 
-  ARM_CLIENT_ID:       ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-  ARM_CLIENT_SECRET:   ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-  ARM_TENANT_ID:       ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+  ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+  ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+  ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
   ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
 
 jobs:
-  terraform-deploy:
+  terraform:
+    name: Terraform Deployment
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
+
+    environment:
+      name: ${{ github.event.inputs.environment }}
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - name: Checkout
+      ######################################################################
+      # Checkout
+      ######################################################################
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
+      ######################################################################
+      # Azure Login
+      ######################################################################
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
           auth-type: SERVICE_PRINCIPAL
 
+      ######################################################################
+      # Setup Terraform
+      ######################################################################
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: 1.6.0
+          terraform_version: "1.14.6"
           terraform_wrapper: false
 
+      ######################################################################
+      # Runtime Variables
+      ######################################################################
       - name: Set Runtime Variables
         run: |
           echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
-          echo "ACTION=${{ github.event.inputs.action || 'apply' }}" >> $GITHUB_ENV
+          echo "ACTION=${{ github.event.inputs.action }}" >> $GITHUB_ENV
           echo "STATE_KEY=tc/${{ github.event.inputs.environment }}.tfstate" >> $GITHUB_ENV
           echo "TFVARS_FILE=${{ github.event.inputs.environment }}.tfvars" >> $GITHUB_ENV
 
-      # Optional backend bootstrap script
+      ######################################################################
+      # Terraform Cache Cleanup
+      ######################################################################
+      - name: Clear Terraform Cache
+        run: |
+          echo "Cleaning Terraform cache"
+
+          rm -rf .terraform || true
+          rm -rf ~/.terraform.d/plugins || true
+          rm -rf ~/.terraform.d/plugin-cache || true
+
+          mkdir -p ~/.terraform.d/plugin-cache
+
+      ######################################################################
+      # Backend Bootstrap
+      ######################################################################
       - name: Bootstrap Terraform Backend
         run: |
           chmod +x ./prebootstrap.sh
+
           ./prebootstrap.sh \
             "${BACKEND_RG}" \
             "${BACKEND_SA}" \
             "${BACKEND_CONTAINER}" \
             "eastus"
 
-      - name: Terraform Init (Remote Backend)
+      ######################################################################
+      # Terraform Init
+      ######################################################################
+      - name: Terraform Init
         working-directory: ${{ env.TF_DIR }}
         run: |
-          terraform init \
+          terraform init -upgrade \
+            -lock-timeout=5m \
             -backend-config="resource_group_name=${BACKEND_RG}" \
             -backend-config="storage_account_name=${BACKEND_SA}" \
             -backend-config="container_name=${BACKEND_CONTAINER}" \
             -backend-config="key=${STATE_KEY}" \
             -backend-config="use_azuread_auth=true"
 
+      ######################################################################
+      # Terraform Format Check
+      ######################################################################
       - name: Terraform Format Check
         working-directory: ${{ env.TF_DIR }}
         run: terraform fmt -check -recursive
 
+      ######################################################################
+      # Terraform Validate
+      ######################################################################
       - name: Terraform Validate
         working-directory: ${{ env.TF_DIR }}
         run: terraform validate
 
-      - name: Terraform Execute
+      ######################################################################
+      # Terraform Plan
+      ######################################################################
+      - name: Terraform Plan
+        if: env.ACTION == 'plan'
         working-directory: ${{ env.TF_DIR }}
         run: |
-          set -euo pipefail
+          terraform plan \
+            -lock-timeout=5m \
+            -var-file="${TFVARS_FILE}" \
+            -out=tfplan
 
-          case "${ACTION}" in
-            plan)
-              terraform plan -var-file="${TFVARS_FILE}"
-              ;;
-            apply)
-              terraform plan -var-file="${TFVARS_FILE}" -out=tfplan
-              terraform apply -auto-approve tfplan
-              ;;
-            destroy)
-              terraform plan -destroy -var-file="${TFVARS_FILE}" -out=tfplan-destroy
-              terraform apply -auto-approve tfplan-destroy
-              ;;
-            refresh)
-              terraform refresh -var-file="${TFVARS_FILE}"
-              ;;
-            *)
-              echo "Unknown action: ${ACTION}"
-              exit 1
-              ;;
-          esac
+      ######################################################################
+      # Upload Plan Artifact
+      ######################################################################
+      - name: Upload Terraform Plan
+        if: env.ACTION == 'plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ env.ENVIRONMENT }}
+          path: ${{ env.TF_DIR }}/tfplan
+
+      ######################################################################
+      # Terraform Apply
+      ######################################################################
+      - name: Terraform Apply
+        if: env.ACTION == 'apply'
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform plan \
+            -lock-timeout=5m \
+            -var-file="${TFVARS_FILE}" \
+            -out=tfplan
+
+          terraform apply \
+            -auto-approve \
+            -lock-timeout=5m \
+            tfplan
+
+      ######################################################################
+      # Terraform Destroy
+      ######################################################################
+      - name: Terraform Destroy
+        if: env.ACTION == 'destroy'
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform plan \
+            -destroy \
+            -lock-timeout=5m \
+            -var-file="${TFVARS_FILE}" \
+            -out=tfplan-destroy
+
+          terraform apply \
+            -auto-approve \
+            -lock-timeout=5m \
+            tfplan-destroy
+
+      ######################################################################
+      # Terraform Refresh
+      ######################################################################
+      - name: Terraform Refresh
+        if: env.ACTION == 'refresh'
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform refresh \
+            -lock-timeout=5m \
+            -var-file="${TFVARS_FILE}"
+
+      ######################################################################
+      # Terraform Outputs
+      ######################################################################
+      - name: Terraform Outputs
+        if: env.ACTION == 'apply'
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform output
+
+      ######################################################################
+      # Upload Debug Logs
+      ######################################################################
+      - name: Upload Terraform Debug Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-debug-logs
+          path: |
+            ~/.terraform.d
+            ${{ env.TF_DIR }}/.terraform
