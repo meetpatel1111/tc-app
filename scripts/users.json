@@ -1,11 +1,9 @@
 {
   "userAssignments": {
     "pmeet464@gmail.com": [
-      "client1",
-      "client2"
+      "client1"
     ],
     "patelmeets465@gmail.com": [
-      "client1",
       "client2"
     ]
   }
